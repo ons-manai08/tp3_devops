@@ -1,45 +1,73 @@
 pipeline {
-    agent any  // Le pipeline peut être exécuté sur n'importe quel agent Jenkins
-
+    agent any
+    triggers {
+        pollSCM('H/5 * * * *')  // Scrutation SCM toutes les 5 minutes
+    }
+    environment {
+        DOCKERHUB_CREDENTIALS = credentials('dockerhub')  // Identifiants Docker Hub
+        IMAGE_NAME_SERVER = '[onsmanai08]/mern-server'  // Nom de l'image serveur
+        IMAGE_NAME_CLIENT = '[onsmanai08]/mern-client'  // Nom de l'image client
+    }
     stages {
         stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main', url: 'git@gitlab.com/project.git', credentialsId: 'Gitlab_ssh'
             }
         }
-
-        stage('Install Dependencies') {
+        stage('Build Server Image') {
             steps {
-                sh 'npm install'
+                dir('server') {
+                    script {
+                        // Construction de l'image du serveur
+                        dockerImageServer = docker.build("${IMAGE_NAME_SERVER}")
+                    }
+                }
             }
         }
-
-        stage('Run Tests') {
+        stage('Build Client Image') {
             steps {
-                sh 'npm test'
+                dir('client') {
+                    script {
+                        // Construction de l'image du client
+                        dockerImageClient = docker.build("${IMAGE_NAME_CLIENT}")
+                    }
+                }
             }
         }
-
-        stage('Build') {
+        stage('Scan Server Image') {
             steps {
-                sh 'npm run build'
+                script {
+                    // Analyse de l'image du serveur avec Trivy
+                    sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL \
+                        ${IMAGE_NAME_SERVER}
+                    """
+                }
             }
         }
-
-        stage('Deploy') {
+        stage('Scan Client Image') {
             steps {
-                echo 'Deploying application...'
-                sh 'npm run deploy'
+                script {
+                    // Analyse de l'image du client avec Trivy
+                    sh """
+                        docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
+                        aquasec/trivy:latest image --exit-code 0 --severity LOW,MEDIUM,HIGH,CRITICAL \
+                        ${IMAGE_NAME_CLIENT}
+                    """
+                }
             }
         }
-    }
-
-    post {
-        success {
-            echo 'Pipeline successful!'
-        }
-        failure {
-            echo 'Pipeline failed.'
+        stage('Push Images to Docker Hub') {
+            steps {
+                script {
+                    // Push des images sur Docker Hub
+                    docker.withRegistry('', "${DOCKERHUB_CREDENTIALS}") {
+                        dockerImageServer.push()
+                        dockerImageClient.push()
+                    }
+                }
+            }
         }
     }
 }
