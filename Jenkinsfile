@@ -11,7 +11,7 @@ pipeline {
     stages {
         stage('Checkout') {
             steps {
-                git branch: 'main', url: 'https://github.com/ons-manai08/tp3_devops', credentialsId: 'Gitlab_ssh'
+                git branch: 'main', url: 'https://github.com/ons-manai08/tp3_devops.git', credentialsId: 'github-ssh'  
             }
         }
         stage('Build Server Image') {
